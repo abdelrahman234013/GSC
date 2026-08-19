@@ -1,0 +1,43 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Bind mount source for hot reload (nodemon) — container's node_modules
+      # stays in its own volume so your host OS's node_modules never overwrites it.
+      - .:/app
+      - node_modules:/app/node_modules
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gsc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gsc}
+      POSTGRES_DB: ${POSTGRES_DB:-gsc_dev}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-gsc} -d ${POSTGRES_DB:-gsc_dev}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+# Redis isn't added yet — it's not needed until we build catalog caching /
+# the BullMQ job queue, per the plan to only add things when we're about to use them.
+
+volumes:
+  postgres_data:
+  node_modules:

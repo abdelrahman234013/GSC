@@ -1,0 +1,424 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =========================================================
+// Admin & Staff (module 5 — completely separate from customers)
+// =========================================================
+
+enum AdminRole {
+  ADMIN
+  STAFF
+}
+
+model Admin {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         AdminRole @default(STAFF)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("admins")
+}
+
+// =========================================================
+// Customers (modules 3 & 4)
+// =========================================================
+
+model Customer {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String? // null for accounts created via Google OAuth only
+  googleId     String?  @unique
+  name         String?
+  phone        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  addresses Address[]
+  orders    Order[]
+  carts     Cart[]
+
+  @@map("customers")
+}
+
+model Address {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  label       String? // e.g. "Home", "Work"
+  fullName    String
+  phone       String
+  city        String
+  addressLine String
+  notes       String?
+  isDefault   Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("addresses")
+}
+
+// =========================================================
+// Products / Catalog (module 6) — car springs only, per the brief
+// =========================================================
+
+enum SpringType {
+  COMPRESSION
+  TENSION
+  TORSIONAL
+  SPIRAL_FLAT
+  CAR_SPRING
+}
+
+model Product {
+  id   String @id @default(uuid())
+  slug String @unique
+
+  nameAr        String
+  nameEn        String
+  descriptionAr String?
+  descriptionEn String?
+
+  springType      SpringType
+  wireDiameterMm  Decimal  @db.Decimal(6, 2)
+  outerDiameterMm Decimal? @db.Decimal(6, 2)
+  innerDiameterMm Decimal? @db.Decimal(6, 2)
+  lengthMm        Decimal? @db.Decimal(6, 2)
+  material        String
+
+  price Decimal @db.Decimal(10, 2)
+  stock Int     @default(0)
+
+  metaTitleAr       String?
+  metaTitleEn       String?
+  metaDescriptionAr String?
+  metaDescriptionEn String?
+
+  images     ProductImage[]
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("products")
+}
+
+model ProductImage {
+  id        String  @id @default(uuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  url      String
+  altAr    String?
+  altEn    String?
+  position Int     @default(0)
+
+  @@map("product_images")
+}
+
+// =========================================================
+// Cart (module 7) — works for guests (sessionId) and customers
+// =========================================================
+
+model Cart {
+  id         String    @id @default(uuid())
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  sessionId  String?   @unique // set for guest carts, null once claimed by a customer
+
+  items CartItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("carts")
+}
+
+model CartItem {
+  id        String  @id @default(uuid())
+  cartId    String
+  cart      Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int     @default(1)
+
+  @@unique([cartId, productId])
+  @@map("cart_items")
+}
+
+// =========================================================
+// Checkout & Orders (module 8) — Cash on Delivery only for v1
+// =========================================================
+
+enum OrderStatus {
+  PROCESSING
+  SHIPPING
+  DELIVERED
+}
+
+model Order {
+  id          String      @id @default(uuid())
+  orderNumber String      @unique // shown to guests for /orders/track/:order_number
+  status      OrderStatus @default(PROCESSING)
+
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id])
+
+  // Guest checkout: no customer account, so contact/delivery info is captured directly.
+  contactName  String
+  contactPhone String
+  contactEmail String?
+  city         String
+  addressLine  String
+  notes        String?
+
+  totalAmount Decimal @db.Decimal(10, 2)
+
+  items OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  // Snapshot the name/price at order time — if the product is edited or removed later,
+  // the order still shows what was actually bought and paid for.
+  nameSnapshot  String
+  priceSnapshot Decimal @db.Decimal(10, 2)
+  quantity      Int
+
+  @@map("order_items")
+}
+
+// =========================================================
+// Custom Quote / RFQ (module 9)
+// =========================================================
+
+enum QuoteStatus {
+  PENDING
+  QUOTED
+  CLOSED
+}
+
+model Quote {
+  id              String      @id @default(uuid())
+  referenceNumber String      @unique // for GET /quotes/track/:reference
+  status          QuoteStatus @default(PENDING)
+
+  // Structured spec fields — this is what makes GET /admin/quotes/export possible.
+  springType      String?
+  wireDiameterMm  Decimal? @db.Decimal(6, 2)
+  outerDiameterMm Decimal? @db.Decimal(6, 2)
+  innerDiameterMm Decimal? @db.Decimal(6, 2)
+  lengthMm        Decimal? @db.Decimal(6, 2)
+  coilCount       Int?
+  material        String?
+  quantity        Int
+  notes           String?
+
+  contactName  String
+  contactPhone String
+  contactEmail String?
+
+  quotedPrice Decimal? @db.Decimal(10, 2)
+  staffNotes  String?
+
+  files QuoteFile[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("quotes")
+}
+
+model QuoteFile {
+  id           String @id @default(uuid())
+  quoteId      String
+  quote        Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  url          String
+  originalName String?
+
+  @@map("quote_files")
+}
+
+// =========================================================
+// General Contact Form (module 10)
+// =========================================================
+
+model ContactMessage {
+  id      String  @id @default(uuid())
+  name    String
+  email   String
+  phone   String?
+  message String
+  isRead  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@map("contact_messages")
+}
+
+// =========================================================
+// Content / CMS (module 11)
+// =========================================================
+
+model ContentPage {
+  id   String @id @default(uuid())
+  slug String @unique // e.g. "home", "about", "products-capabilities", "contact"
+
+  titleAr String?
+  titleEn String?
+  bodyAr  Json // flexible block content — this is the JSONB use case Postgres covers
+  bodyEn  Json
+
+  metaTitleAr       String?
+  metaTitleEn       String?
+  metaDescriptionAr String?
+  metaDescriptionEn String?
+
+  updatedAt DateTime @updatedAt
+
+  @@map("content_pages")
+}
+
+// Singleton row (one record) — homepage stats: years of experience, capacity, client count.
+model SiteStats {
+  id                 String @id @default("singleton")
+  yearsExperience    Int
+  productionCapacity String // e.g. "~50 tons/month, up to 150 tons max" — kept as text, not a number
+  clientCount        Int
+
+  updatedAt DateTime @updatedAt
+
+  @@map("site_stats")
+}
+
+model CapabilityRow {
+  id       String @id @default(uuid())
+  labelAr  String
+  labelEn  String
+  valueAr  String
+  valueEn  String
+  position Int    @default(0)
+
+  @@map("capability_rows")
+}
+
+model TimelineEntry {
+  id            String  @id @default(uuid())
+  year          Int
+  titleAr       String
+  titleEn       String
+  descriptionAr String?
+  descriptionEn String?
+  position      Int     @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@map("timeline_entries")
+}
+
+// =========================================================
+// Gallery / Media (module 12)
+// =========================================================
+
+enum GalleryCategory {
+  FACTORY_INTERIOR
+  MACHINES
+  FINISHED_PRODUCT
+  MANUFACTURING_PROCESS
+}
+
+model GalleryImage {
+  id        String          @id @default(uuid())
+  url       String
+  category  GalleryCategory
+  captionAr String?
+  captionEn String?
+  altAr     String?
+  altEn     String?
+  position  Int             @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@map("gallery_images")
+}
+
+model GalleryVideo {
+  id       String  @id @default(uuid())
+  url      String // uploaded file URL or embed link (e.g. YouTube)
+  titleAr  String?
+  titleEn  String?
+  position Int     @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@map("gallery_videos")
+}
+
+// =========================================================
+// Clients & Case Studies (module 13)
+// =========================================================
+
+model Client {
+  id            String  @id @default(uuid())
+  name          String
+  logoUrl       String
+  descriptionAr String?
+  descriptionEn String?
+  position      Int     @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@map("clients")
+}
+
+model CaseStudy {
+  id      String @id @default(uuid())
+  slug    String @unique // e.g. "king-fahd-causeway"
+  titleAr String
+  titleEn String
+  bodyAr  Json
+  bodyEn  Json
+  images  Json // array of image URLs
+
+  publishedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("case_studies")
+}
+
+// =========================================================
+// Admin Dashboard & Settings (module 14) — singleton settings row
+// =========================================================
+
+model SiteSettings {
+  id              String @id @default("singleton")
+  contactPhone    String
+  contactEmail    String
+  contactWhatsapp String?
+  socialLinks     Json // e.g. { "linkedin": "...", "googleBusiness": "..." }
+
+  updatedAt DateTime @updatedAt
+
+  @@map("site_settings")
+}

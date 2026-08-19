@@ -1,0 +1,24 @@
+{
+  "name": "gsc-backend",
+  "version": "0.1.0",
+  "description": "Backend API for GSC (Global Springs Company) website — bilingual company site, online store, and custom quote (RFQ) tool.",
+  "private": true,
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "prisma generate && nodemon src/index.js",
+    "start": "prisma generate && node src/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.9.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "prisma": "^7.9.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}
