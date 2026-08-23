@@ -3,22 +3,39 @@
   "version": "0.1.0",
   "description": "Backend API for GSC (Global Springs Company) website — bilingual company site, online store, and custom quote (RFQ) tool.",
   "private": true,
-  "main": "src/index.js",
+  "main": "dist/index.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "prisma generate && nodemon src/index.js",
-    "start": "prisma generate && node src/index.js",
+    "dev": "prisma generate && tsx watch src/index.ts",
+    "build": "prisma generate && tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "prisma:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "prisma": "^7.9.1"
+    "google-auth-library": "^10.9.1",
+    "jsonwebtoken": "^9.0.3",
+    "prisma": "^7.9.1",
+    "resend": "^6.22.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.4"
+    "@types/bcrypt": "^6.0.0",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
   }
 }

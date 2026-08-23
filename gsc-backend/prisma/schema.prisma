@@ -1,6 +1,7 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {
@@ -33,14 +34,16 @@ model Admin {
 // =========================================================
 
 model Customer {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String? // null for accounts created via Google OAuth only
-  googleId     String?  @unique
-  name         String?
-  phone        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id               String    @id @default(uuid())
+  email            String    @unique
+  passwordHash     String?
+  googleId         String?   @unique
+  name             String?
+  phone            String?
+  refreshTokenHash String?
+  emailVerifiedAt  DateTime? // null = not verified yet
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   addresses Address[]
   orders    Order[]
