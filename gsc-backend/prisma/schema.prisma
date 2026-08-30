@@ -18,13 +18,14 @@ enum AdminRole {
 }
 
 model Admin {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  passwordHash String
-  name         String
-  role         AdminRole @default(STAFF)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id               String    @id @default(uuid())
+  email            String    @unique
+  passwordHash     String
+  name             String
+  role             AdminRole @default(STAFF)
+  sessionTokenHash String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@map("admins")
 }
@@ -45,25 +46,23 @@ model Customer {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  addresses Address[]
+  address Address?
   orders    Order[]
-  carts     Cart[]
+  quotes Quote[]
 
   @@map("customers")
 }
 
 model Address {
   id         String   @id @default(uuid())
-  customerId String
+  customerId String   @unique
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  label       String? // e.g. "Home", "Work"
   fullName    String
   phone       String
   city        String
   addressLine String
   notes       String?
-  isDefault   Boolean  @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -75,12 +74,19 @@ model Address {
 // Products / Catalog (module 6) — car springs only, per the brief
 // =========================================================
 
-enum SpringType {
-  COMPRESSION
-  TENSION
-  TORSIONAL
-  SPIRAL_FLAT
-  CAR_SPRING
+model SpringType {
+  id     String @id @default(uuid())
+  slug   String @unique
+  nameAr String
+  nameEn String
+
+  products Product[]
+  quotes Quote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("spring_types")
 }
 
 model Product {
@@ -92,12 +98,14 @@ model Product {
   descriptionAr String?
   descriptionEn String?
 
-  springType      SpringType
+  springTypeId String
+  springType   SpringType @relation(fields: [springTypeId], references: [id])
   wireDiameterMm  Decimal  @db.Decimal(6, 2)
   outerDiameterMm Decimal? @db.Decimal(6, 2)
   innerDiameterMm Decimal? @db.Decimal(6, 2)
   lengthMm        Decimal? @db.Decimal(6, 2)
-  material        String
+  materialAr      String
+  materialEn      String
 
   price Decimal @db.Decimal(10, 2)
   stock Int     @default(0)
@@ -108,7 +116,6 @@ model Product {
   metaDescriptionEn String?
 
   images     ProductImage[]
-  cartItems  CartItem[]
   orderItems OrderItem[]
 
   createdAt DateTime @default(now())
@@ -130,35 +137,6 @@ model ProductImage {
   @@map("product_images")
 }
 
-// =========================================================
-// Cart (module 7) — works for guests (sessionId) and customers
-// =========================================================
-
-model Cart {
-  id         String    @id @default(uuid())
-  customerId String?
-  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  sessionId  String?   @unique // set for guest carts, null once claimed by a customer
-
-  items CartItem[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("carts")
-}
-
-model CartItem {
-  id        String  @id @default(uuid())
-  cartId    String
-  cart      Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
-  quantity  Int     @default(1)
-
-  @@unique([cartId, productId])
-  @@map("cart_items")
-}
 
 // =========================================================
 // Checkout & Orders (module 8) — Cash on Delivery only for v1
@@ -203,11 +181,10 @@ model OrderItem {
   productId String
   product   Product @relation(fields: [productId], references: [id])
 
-  // Snapshot the name/price at order time — if the product is edited or removed later,
-  // the order still shows what was actually bought and paid for.
-  nameSnapshot  String
-  priceSnapshot Decimal @db.Decimal(10, 2)
-  quantity      Int
+  nameSnapshotAr String
+  nameSnapshotEn String
+  priceSnapshot  Decimal @db.Decimal(10, 2)
+  quantity       Int
 
   @@map("order_items")
 }
@@ -224,11 +201,14 @@ enum QuoteStatus {
 
 model Quote {
   id              String      @id @default(uuid())
-  referenceNumber String      @unique // for GET /quotes/track/:reference
+  referenceNumber String      @unique
   status          QuoteStatus @default(PENDING)
 
-  // Structured spec fields — this is what makes GET /admin/quotes/export possible.
-  springType      String?
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id])
+
+  springTypeId    String?
+  springType      SpringType? @relation(fields: [springTypeId], references: [id])
   wireDiameterMm  Decimal? @db.Decimal(6, 2)
   outerDiameterMm Decimal? @db.Decimal(6, 2)
   innerDiameterMm Decimal? @db.Decimal(6, 2)
@@ -264,23 +244,6 @@ model QuoteFile {
 }
 
 // =========================================================
-// General Contact Form (module 10)
-// =========================================================
-
-model ContactMessage {
-  id      String  @id @default(uuid())
-  name    String
-  email   String
-  phone   String?
-  message String
-  isRead  Boolean @default(false)
-
-  createdAt DateTime @default(now())
-
-  @@map("contact_messages")
-}
-
-// =========================================================
 // Content / CMS (module 11)
 // =========================================================
 
@@ -301,29 +264,6 @@ model ContentPage {
   updatedAt DateTime @updatedAt
 
   @@map("content_pages")
-}
-
-// Singleton row (one record) — homepage stats: years of experience, capacity, client count.
-model SiteStats {
-  id                 String @id @default("singleton")
-  yearsExperience    Int
-  productionCapacity String // e.g. "~50 tons/month, up to 150 tons max" — kept as text, not a number
-  clientCount        Int
-
-  updatedAt DateTime @updatedAt
-
-  @@map("site_stats")
-}
-
-model CapabilityRow {
-  id       String @id @default(uuid())
-  labelAr  String
-  labelEn  String
-  valueAr  String
-  valueEn  String
-  position Int    @default(0)
-
-  @@map("capability_rows")
 }
 
 model TimelineEntry {

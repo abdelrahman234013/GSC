@@ -74,3 +74,75 @@ export function passwordResetEmail(link) {
   `;
   return { subject: "Reset your GSC password", html: wrapEmail(bodyHtml) };
 }
+
+export function orderConfirmationEmail(order) {
+  const itemsHtml = order.items
+    .map(
+      (i) =>
+        `<tr><td>${i.nameSnapshotEn}</td><td>${i.quantity}</td><td>${i.priceSnapshot}</td></tr>`,
+    )
+    .join("");
+  return {
+    subject: `Order confirmed — ${order.orderNumber}`,
+    html: wrapEmail(`
+      <p>Thanks for your order! Your order number is <strong>${order.orderNumber}</strong>.</p>
+      <table>${itemsHtml}</table>
+      <p>Total: ${order.totalAmount}</p>
+      <p>Payment: Cash on Delivery.</p>
+    `),
+  };
+}
+
+export function newOrderAdminEmail(order) {
+  return {
+    subject: `New order — ${order.orderNumber}`,
+    html: wrapEmail(`
+      <p>New order placed: <strong>${order.orderNumber}</strong></p>
+      <p>Customer: ${order.contactName} — ${order.contactPhone}</p>
+      <p>Total: ${order.totalAmount}</p>
+    `),
+  };
+}
+
+export function orderStatusUpdateEmail(order) {
+  return {
+    subject: `Your order ${order.orderNumber} is now ${order.status.toLowerCase()}`,
+    html: wrapEmail(`
+      <p>Your order <strong>${order.orderNumber}</strong> status has been updated to <strong>${order.status}</strong>.</p>
+    `),
+  };
+}
+
+export function newQuoteAdminEmail(quote) {
+  return {
+    subject: `New RFQ — ${quote.referenceNumber}`,
+    html: wrapEmail(`
+      <p>New custom quote request: <strong>${quote.referenceNumber}</strong></p>
+      <p>Contact: ${quote.contactName} — ${quote.contactPhone}</p>
+      <p>Quantity: ${quote.quantity}</p>
+    `),
+  };
+}
+
+export function quoteConfirmationEmail(quote) {
+  return {
+    subject: `RFQ received — ${quote.referenceNumber}`,
+    html: wrapEmail(`
+      <p>We've received your custom quote request. Reference number: <strong>${quote.referenceNumber}</strong>.</p>
+      <p>Our team will review the details and get back to you with pricing.</p>
+    `),
+  };
+}
+
+export function contactMessageAdminEmail({ name, email, phone, message }) {
+  return {
+    subject: `New contact form message from ${name}`,
+    html: wrapEmail(`
+      <p>New message from the website contact form:</p>
+      <p><strong>Name:</strong> ${name}</p>
+      <p><strong>Email:</strong> ${email}</p>
+      ${phone ? `<p><strong>Phone:</strong> ${phone}</p>` : ""}
+      <p><strong>Message:</strong><br>${message}</p>
+    `),
+  };
+}

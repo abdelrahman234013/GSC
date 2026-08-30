@@ -15,16 +15,12 @@ import {
   normalizeEmail,
 } from "../lib/validation";
 import { verificationEmail, passwordResetEmail } from "../lib/emailTemplates";
+import { publicCustomer } from "../lib/helperFunctions";
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const CUSTOMER_JWT_SECRET = process.env.CUSTOMER_JWT_SECRET;
 const CUSTOMER_REFRESH_SECRET = process.env.CUSTOMER_REFRESH_SECRET;
-
-function publicCustomer(customer) {
-  const { passwordHash, refreshTokenHash, ...safe } = customer;
-  return safe;
-}
 
 function createEmailVerificationToken(customerId) {
   return signToken(
