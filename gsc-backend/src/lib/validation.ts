@@ -14,3 +14,7 @@ export function isValidPassword(password: any) {
   if (!/[a-zA-Z]/.test(password)) return false; // at least one letter
   return true;
 }
+
+export function isValidEgyptianPhone(phone) {
+  return /^(0|\+20|0020)1[0125][0-9]{8}$/.test(phone);
+}

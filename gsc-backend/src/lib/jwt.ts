@@ -25,3 +25,17 @@ const REFRESH_COOKIE_OPTIONS = {
 export function setRefreshCookie(res, refreshToken) {
   res.cookie("refreshToken", refreshToken, REFRESH_COOKIE_OPTIONS);
 }
+
+export function setAdminSessionCookie(res, token) {
+  res.cookie("adminSession", token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/admin",
+    maxAge: 8 * 60 * 60 * 1000, // 8 hours
+  });
+}
+
+export function clearAdminSessionCookie(res) {
+  res.clearCookie("adminSession", { path: "/admin" });
+}
