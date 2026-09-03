@@ -42,6 +42,19 @@ model Customer {
   name             String?
   phone            String?
   refreshTokenHash String?
+
+  // Hash of the most recently issued password-reset token.
+  //
+  // Makes a reset link single-use. The JWT alone stays cryptographically valid
+  // for its full lifetime, so without this the same link could be used over and
+  // over — by anyone who later reached it through a shared computer, a forwarded
+  // mailbox, or browser history. Cleared the moment a reset succeeds, and
+  // overwritten whenever a new link is requested, so only the newest link works.
+  //
+  // Stored hashed, not raw: the same reasoning as refreshTokenHash above — a
+  // leaked database dump must not hand out working reset links.
+  passwordResetTokenHash String?
+
   emailVerifiedAt  DateTime? // null = not verified yet
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -146,12 +159,34 @@ enum OrderStatus {
   PROCESSING
   SHIPPING
   DELIVERED
+  // Admin-only. Cash on delivery means refused deliveries are routine, and
+  // without this there was no way to record one — the order stayed "shipping"
+  // forever and its stock stayed decremented for goods that came back.
+  CANCELLED
 }
 
 model Order {
   id          String      @id @default(uuid())
   orderNumber String      @unique // shown to guests for /orders/track/:order_number
   status      OrderStatus @default(PROCESSING)
+
+  // Client-supplied Idempotency-Key from POST /checkout.
+  //
+  // The unique index is what actually enforces this: without it, two requests
+  // carrying the same key could both pass a "does this exist yet?" check and both
+  // insert. With it, the database rejects the second one, and the handler returns
+  // the order the first request created. That is the difference between a
+  // duplicate order and a safe retry — and for cash on delivery, a duplicate is
+  // two vans sent to one address.
+  //
+  // Scoped per customer (see @@unique below) rather than globally unique: two
+  // different customers whose clients both send a naive key like "1" must not
+  // collide with each other.
+  //
+  // Nullable because the header is optional; orders placed without one simply
+  // have no retry protection. Postgres allows many NULLs in a unique index, so
+  // those orders never conflict.
+  idempotencyKey String?
 
   customerId String?
   customer   Customer? @relation(fields: [customerId], references: [id])
@@ -166,11 +201,18 @@ model Order {
 
   totalAmount Decimal @db.Decimal(10, 2)
 
+  // Set when an admin cancels. Kept as a record rather than deleting the row:
+  // an order is an accounting document, and "why did this not go ahead?" is a
+  // question that gets asked weeks later during a dispute or a stock count.
+  cancelledAt        DateTime?
+  cancellationReason String?
+
   items OrderItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([customerId, idempotencyKey])
   @@map("orders")
 }
 

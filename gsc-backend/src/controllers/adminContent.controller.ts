@@ -1,5 +1,7 @@
 import { prisma } from "../db";
-import { uploadToSupabase } from "../lib/supabaseStorage";
+import { uploadToSupabase, UploadError } from "../lib/supabaseStorage";
+import { cleanupStagedFiles } from "../lib/upload";
+import { VIDEO_TYPES } from "../lib/fileTypes";
 
 const ALLOWED_SLUGS = [
   "home",
@@ -142,7 +144,11 @@ export async function uploadHeroVideo(req, res) {
       return res.status(400).json({ error: "A video file is required" });
     }
 
-    const uploaded = await uploadToSupabase("content-videos", req.file);
+    const uploaded = await uploadToSupabase(
+      "content-videos",
+      req.file,
+      VIDEO_TYPES,
+    );
 
     const existing = await prisma.contentPage.findUnique({
       where: { slug: "home" },
@@ -166,7 +172,12 @@ export async function uploadHeroVideo(req, res) {
 
     res.status(201).json(page);
   } catch (err) {
+    if (err instanceof UploadError) {
+      return res.status(err.status).json({ error: err.message });
+    }
     console.error("POST /admin/content/home/hero-video failed:", err);
     res.status(500).json({ error: "Failed to upload hero video" });
+  } finally {
+    await cleanupStagedFiles(req);
   }
 }

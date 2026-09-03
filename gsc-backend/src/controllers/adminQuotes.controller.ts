@@ -1,13 +1,17 @@
 import { prisma } from "../db";
+import { signQuoteFiles } from "../lib/supabaseStorage";
+import { listQuotesQuerySchema, parseOrFail } from "../lib/schemas";
 
 export async function listQuotes(req, res) {
   try {
-    const { status, page, limit } = req.query;
-    const where: any = {};
-    if (status) where.status = status;
+    const query = parseOrFail(listQuotesQuerySchema, req.query, res);
+    if (!query) return;
 
-    const pageNum = Math.max(1, Number(page) || 1);
-    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
+    const where: any = {};
+    if (query.status) where.status = query.status;
+
+    const pageNum = query.page;
+    const limitNum = query.limit;
 
     const [quotes, total] = await Promise.all([
       prisma.quote.findMany({
@@ -50,7 +54,9 @@ export async function getQuoteDetail(req, res) {
     if (!quote) {
       return res.status(404).json({ error: "Quote not found" });
     }
-    res.json(quote);
+    // Staff see the full row (staffNotes and all) — only the attachment URLs need
+    // signing, since the bucket is private.
+    res.json({ ...quote, files: await signQuoteFiles(quote.files) });
   } catch (err) {
     console.error("GET /admin/quotes/:id failed:", err);
     res.status(500).json({ error: "Failed to fetch quote" });
@@ -88,7 +94,7 @@ export async function updateQuote(req, res) {
       include: { files: true, springType: true },
     });
 
-    res.json(quote);
+    res.json({ ...quote, files: await signQuoteFiles(quote.files) });
   } catch (err) {
     console.error("PUT /admin/quotes/:id failed:", err);
     res.status(500).json({ error: "Failed to update quote" });

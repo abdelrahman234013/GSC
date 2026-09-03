@@ -7,7 +7,7 @@ import {
   deleteTimelineEntry,
   uploadHeroVideo,
 } from "../controllers/adminContent.controller";
-import { videoUpload } from "../lib/upload";
+import { videoUpload, handleUpload } from "../lib/upload";
 
 const router = express.Router();
 
@@ -19,16 +19,7 @@ router.put("/timeline/:id", updateTimelineEntry);
 router.delete("/timeline/:id", deleteTimelineEntry);
 router.post(
   "/home/hero-video",
-  (req, res, next) => {
-    videoUpload.single("video")(req, res, (err) => {
-      if (err) {
-        return res
-          .status(400)
-          .json({ error: err.message || "File upload failed" });
-      }
-      next();
-    });
-  },
+  handleUpload(videoUpload.single("video")),
   uploadHeroVideo,
 );
 

@@ -1,11 +1,25 @@
 import { prisma } from "../db";
-import { publicCustomer } from "../lib/helperFunctions";
+import {
+  publicCustomer,
+  publicQuote,
+  resolveCustomerId,
+} from "../lib/helperFunctions";
+import { signQuoteFiles } from "../lib/supabaseStorage";
+import {
+  profileUpdateSchema,
+  addressSchema,
+  addressUpdateSchema,
+  parseOrFail,
+} from "../lib/schemas";
 import { isValidEgyptianPhone } from "../lib/validation";
 
 export async function getProfile(req, res) {
   try {
+    const customerId = resolveCustomerId(req, res);
+    if (!customerId) return;
+
     const customer = await prisma.customer.findUnique({
-      where: { id: req.customer.id },
+      where: { id: customerId },
     });
     if (!customer) {
       return res.status(404).json({ error: "Customer not found" });
@@ -19,7 +33,13 @@ export async function getProfile(req, res) {
 
 export async function updateProfile(req, res) {
   try {
-    const { name, phone } = req.body ?? {};
+    const customerId = resolveCustomerId(req, res);
+    if (!customerId) return;
+
+    const parsed = parseOrFail(profileUpdateSchema, req.body ?? {}, res);
+    if (!parsed) return;
+    const { name, phone } = parsed;
+
     if (name === undefined && phone === undefined) {
       return res
         .status(400)
@@ -34,7 +54,7 @@ export async function updateProfile(req, res) {
     }
 
     const customer = await prisma.customer.update({
-      where: { id: req.customer.id },
+      where: { id: customerId },
       data: { name, phone },
     });
     res.json(publicCustomer(customer));
@@ -46,8 +66,11 @@ export async function updateProfile(req, res) {
 
 export async function getOrders(req, res) {
   try {
+    const customerId = resolveCustomerId(req, res);
+    if (!customerId) return;
+
     const orders = await prisma.order.findMany({
-      where: { customerId: req.customer.id },
+      where: { customerId },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -77,12 +100,15 @@ export async function getOrders(req, res) {
 
 export async function getOrderDetail(req, res) {
   try {
+    const customerId = resolveCustomerId(req, res);
+    if (!customerId) return;
+
     const order = await prisma.order.findUnique({
       where: { id: req.params.id },
       include: { items: true },
     });
 
-    if (!order || order.customerId !== req.customer.id) {
+    if (!order || order.customerId !== customerId) {
       return res.status(404).json({ error: "Order not found" });
     }
 
@@ -95,8 +121,11 @@ export async function getOrderDetail(req, res) {
 
 export async function getAddress(req, res) {
   try {
+    const customerId = resolveCustomerId(req, res);
+    if (!customerId) return;
+
     const address = await prisma.address.findUnique({
-      where: { customerId: req.customer.id },
+      where: { customerId },
     });
     if (!address) {
       return res.status(404).json({ error: "No address on file yet" });
@@ -110,8 +139,11 @@ export async function getAddress(req, res) {
 
 export async function createAddress(req, res) {
   try {
+    const customerId = resolveCustomerId(req, res);
+    if (!customerId) return;
+
     const existing = await prisma.address.findUnique({
-      where: { customerId: req.customer.id },
+      where: { customerId },
     });
     if (existing) {
       return res.status(409).json({
@@ -120,12 +152,10 @@ export async function createAddress(req, res) {
       });
     }
 
-    const { fullName, phone, city, addressLine, notes } = req.body ?? {};
-    if (!fullName || !phone || !city || !addressLine) {
-      return res
-        .status(400)
-        .json({ error: "fullName, phone, city, and addressLine are required" });
-    }
+    const parsed = parseOrFail(addressSchema, req.body ?? {}, res);
+    if (!parsed) return;
+    const { fullName, phone, city, addressLine, notes } = parsed;
+
     if (!isValidEgyptianPhone(phone)) {
       return res.status(400).json({
         error:
@@ -135,7 +165,7 @@ export async function createAddress(req, res) {
 
     const address = await prisma.address.create({
       data: {
-        customerId: req.customer.id,
+        customerId,
         fullName,
         phone,
         city,
@@ -152,8 +182,11 @@ export async function createAddress(req, res) {
 
 export async function updateAddress(req, res) {
   try {
+    const customerId = resolveCustomerId(req, res);
+    if (!customerId) return;
+
     const existing = await prisma.address.findUnique({
-      where: { customerId: req.customer.id },
+      where: { customerId },
     });
     if (!existing) {
       return res
@@ -161,7 +194,9 @@ export async function updateAddress(req, res) {
         .json({ error: "No address on file yet — create one first" });
     }
 
-    const { fullName, phone, city, addressLine, notes } = req.body ?? {};
+    const parsed = parseOrFail(addressUpdateSchema, req.body ?? {}, res);
+    if (!parsed) return;
+    const { fullName, phone, city, addressLine, notes } = parsed;
 
     if (phone !== undefined && !isValidEgyptianPhone(phone)) {
       return res.status(400).json({
@@ -188,8 +223,11 @@ export async function updateAddress(req, res) {
 
 export async function deleteAddress(req, res) {
   try {
+    const customerId = resolveCustomerId(req, res);
+    if (!customerId) return;
+
     const existing = await prisma.address.findUnique({
-      where: { customerId: req.customer.id },
+      where: { customerId },
     });
     if (!existing) {
       return res.status(404).json({ error: "No address on file" });
@@ -204,12 +242,15 @@ export async function deleteAddress(req, res) {
 
 export async function getQuotes(req, res) {
   try {
+    const customerId = resolveCustomerId(req, res);
+    if (!customerId) return;
+
     const quotes = await prisma.quote.findMany({
-      where: { customerId: req.customer.id },
+      where: { customerId },
       include: { _count: { select: { files: true } } },
       orderBy: { createdAt: "desc" },
     });
-    res.json(quotes);
+    res.json(quotes.map(publicQuote));
   } catch (err) {
     console.error("GET /customers/me/quotes failed:", err);
     res.status(500).json({ error: "Failed to fetch quotes" });
@@ -218,14 +259,20 @@ export async function getQuotes(req, res) {
 
 export async function getQuoteDetail(req, res) {
   try {
+    const customerId = resolveCustomerId(req, res);
+    if (!customerId) return;
+
     const quote = await prisma.quote.findUnique({
       where: { id: req.params.id },
       include: { files: true, springType: true },
     });
-    if (!quote || quote.customerId !== req.customer.id) {
+    if (!quote || quote.customerId !== customerId) {
       return res.status(404).json({ error: "Quote not found" });
     }
-    res.json(quote);
+    res.json({
+      ...publicQuote(quote),
+      files: await signQuoteFiles(quote.files),
+    });
   } catch (err) {
     console.error("GET /customers/me/quotes/:id failed:", err);
     res.status(500).json({ error: "Failed to fetch quote" });

@@ -1,10 +1,13 @@
 import { prisma } from "../db";
+import { galleryQuerySchema, parseOrFail } from "../lib/schemas";
 
 export async function getGallery(req, res) {
   try {
-    const { category } = req.query;
+    const query = parseOrFail(galleryQuerySchema, req.query, res);
+    if (!query) return;
+
     const where: any = {};
-    if (category) where.category = category;
+    if (query.category) where.category = query.category;
 
     const [images, videos] = await Promise.all([
       prisma.galleryImage.findMany({ where, orderBy: { position: "asc" } }),

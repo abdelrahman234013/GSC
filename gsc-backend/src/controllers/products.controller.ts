@@ -1,8 +1,11 @@
 import { prisma } from "../db";
+import { listProductsQuerySchema, parseOrFail } from "../lib/schemas";
 
 export async function listProducts(req, res) {
   try {
-    const { springType, minDiameter, maxDiameter, search, page, limit } = req.query;
+    const query = parseOrFail(listProductsQuerySchema, req.query, res);
+    if (!query) return;
+    const { springType, minDiameter, maxDiameter, search } = query;
 
     const where: any = {};
 
@@ -14,10 +17,10 @@ export async function listProducts(req, res) {
       where.springTypeId = type.id;
     }
 
-    if (minDiameter || maxDiameter) {
+    if (minDiameter !== undefined || maxDiameter !== undefined) {
       where.wireDiameterMm = {};
-      if (minDiameter) where.wireDiameterMm.gte = Number(minDiameter);
-      if (maxDiameter) where.wireDiameterMm.lte = Number(maxDiameter);
+      if (minDiameter !== undefined) where.wireDiameterMm.gte = minDiameter;
+      if (maxDiameter !== undefined) where.wireDiameterMm.lte = maxDiameter;
     }
 
     if (search) {
@@ -27,8 +30,8 @@ export async function listProducts(req, res) {
       ];
     }
 
-    const pageNum = Math.max(1, Number(page) || 1);
-    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
+    const pageNum = query.page;
+    const limitNum = query.limit;
 
     const [products, total] = await Promise.all([
       prisma.product.findMany({

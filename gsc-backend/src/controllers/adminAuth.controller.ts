@@ -1,13 +1,20 @@
 import { prisma } from "../db";
-import { hashPassword, comparePassword, hashToken } from "../lib/password";
+import {
+  hashPassword,
+  comparePassword,
+  hashToken,
+  isLegacyPasswordHash,
+} from "../lib/password";
 import {
   signToken,
   setAdminSessionCookie,
   clearAdminSessionCookie,
+  TOKEN_PURPOSE,
 } from "../lib/jwt";
 import { normalizeEmail } from "../lib/validation";
 
-const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET;
+// Read at call time rather than captured at import time — see the note in
+// middleware/customerAuth.ts.
 
 function publicAdmin(admin) {
   const { passwordHash, sessionTokenHash, ...safe } = admin;
@@ -34,7 +41,24 @@ export async function login(req, res) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
-    const token = signToken({ adminId: admin.id }, ADMIN_JWT_SECRET, "8h");
+    // Same transparent upgrade as customer login — see the note there.
+    if (isLegacyPasswordHash(admin.passwordHash)) {
+      try {
+        await prisma.admin.update({
+          where: { id: admin.id },
+          data: { passwordHash: await hashPassword(password) },
+        });
+      } catch (upgradeErr) {
+        console.error("Admin password hash upgrade failed:", upgradeErr);
+      }
+    }
+
+    const token = signToken(
+      { adminId: admin.id },
+      process.env.ADMIN_JWT_SECRET,
+      "8h",
+      TOKEN_PURPOSE.ADMIN_SESSION,
+    );
     const sessionTokenHash = hashToken(token);
     await prisma.admin.update({
       where: { id: admin.id },

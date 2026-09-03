@@ -10,8 +10,10 @@
     "build": "prisma generate && tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
+    "test:security": "tsx tests/auth-token-scope.test.ts && tsx tests/registration-resilience.test.ts && tsx tests/cross-site-cookies.test.ts && tsx tests/upload-hardening.test.ts && tsx tests/rate-limiting.test.ts && tsx tests/background-email.test.ts && tsx tests/checkout-integrity.test.ts && tsx tests/reset-and-admin-guards.test.ts && tsx tests/input-validation.test.ts && tsx tests/password-hashing.test.ts && tsx tests/storage-cleanup.test.ts && tsx tests/order-lifecycle.test.ts && tsx tests/email-and-limits.test.ts && npm run build --silent && tsx tests/deploy-readiness.test.ts && tsx tests/trust-proxy.test.ts && tsx tests/env-validation.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/seed.ts"
   },
@@ -24,11 +26,13 @@
     "cors": "^2.8.6",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-rate-limit": "^8.7.0",
     "google-auth-library": "^10.9.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.3.0",
     "prisma": "^7.9.1",
-    "resend": "^6.22.0"
+    "resend": "^6.22.0",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",

@@ -1,6 +1,16 @@
+# DEVELOPMENT compose. Production is docker-compose.prod.yml.
+#
+#   dev:   docker compose up
+#   prod:  docker compose -f docker-compose.prod.yml up -d --build
 services:
   app:
-    build: .
+    build:
+      context: .
+      # Explicit: without it, `build: .` uses the Dockerfile's LAST stage, which
+      # is the production runtime image — so `docker compose up` would run
+      # `node dist/index.js` over the bind-mounted source below instead of a
+      # hot-reloading dev server.
+      target: dev
     ports:
       - "${PORT:-3000}:3000"
     env_file:

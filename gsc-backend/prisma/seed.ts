@@ -60,10 +60,12 @@ async function main() {
   ];
 
   for (const p of products) {
+    const { springType, ...productData } = p;
+
     await prisma.product.upsert({
       where: { slug: p.slug },
-      update: p,
-      create: p,
+      update: productData as any,
+      create: productData as any,
     });
   }
 

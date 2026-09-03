@@ -1,10 +1,19 @@
 import { prisma } from "../db";
-import { sendEmail } from "../lib/mailer";
+import { notifyCustomer, notifyAdmins } from "../lib/notifications";
 import {
   newQuoteAdminEmail,
   quoteConfirmationEmail,
 } from "../lib/emailTemplates";
 import { uploadToSupabase } from "../lib/supabaseStorage";
+import { resolveCustomerId, publicQuote } from "../lib/helperFunctions";
+import { cleanupStagedFiles } from "../lib/upload";
+import { QUOTE_ATTACHMENT_TYPES } from "../lib/fileTypes";
+import { quoteSchema, parseOrFail } from "../lib/schemas";
+import {
+  UploadError,
+  signQuoteFiles,
+  removeFromSupabase,
+} from "../lib/supabaseStorage";
 
 async function generateReferenceNumber() {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -18,8 +27,12 @@ async function generateReferenceNumber() {
 
 export async function submitQuote(req, res) {
   try {
-    const customerId = req.customer.id; // requireCustomerAuth guarantees this exists
+    const customerId = resolveCustomerId(req, res);
+    if (!customerId) return;
 
+    // Multipart form fields arrive as strings, so the schema coerces numbers.
+    const parsed = parseOrFail(quoteSchema, req.body ?? {}, res);
+    if (!parsed) return;
     const {
       springTypeId,
       wireDiameterMm,
@@ -28,16 +41,9 @@ export async function submitQuote(req, res) {
       lengthMm,
       coilCount,
       material,
-      quantity,
+      quantity: quantityNum,
       notes,
-    } = req.body ?? {};
-
-    const quantityNum = Number(quantity);
-    if (!Number.isInteger(quantityNum) || quantityNum <= 0) {
-      return res
-        .status(400)
-        .json({ error: "quantity must be a positive integer" });
-    }
+    } = parsed;
 
     if (springTypeId) {
       const type = await prisma.springType.findUnique({
@@ -67,19 +73,27 @@ export async function submitQuote(req, res) {
     const referenceNumber = await generateReferenceNumber();
 
     const uploadedFiles = await Promise.all(
-      (req.files ?? []).map((f) => uploadToSupabase("quote-files", f)),
+      (req.files ?? []).map((f) =>
+        uploadToSupabase("quote-files", f, QUOTE_ATTACHMENT_TYPES),
+      ),
     );
 
-    const quote = await prisma.quote.create({
+    // Files reach storage before this insert, so anything that fails the insert
+    // (a validation error, a database blip) would otherwise strand them there
+    // with no database row ever referencing them — invisible, and billed for.
+    let quote;
+    try {
+      quote = await prisma.quote.create({
       data: {
         referenceNumber,
         customerId,
         springTypeId: springTypeId || null,
-        wireDiameterMm: wireDiameterMm ? Number(wireDiameterMm) : null,
-        outerDiameterMm: outerDiameterMm ? Number(outerDiameterMm) : null,
-        innerDiameterMm: innerDiameterMm ? Number(innerDiameterMm) : null,
-        lengthMm: lengthMm ? Number(lengthMm) : null,
-        coilCount: coilCount ? Number(coilCount) : null,
+        // Already coerced and range-checked by quoteSchema.
+        wireDiameterMm: wireDiameterMm ?? null,
+        outerDiameterMm: outerDiameterMm ?? null,
+        innerDiameterMm: innerDiameterMm ?? null,
+        lengthMm: lengthMm ?? null,
+        coilCount: coilCount ?? null,
         material: material || null,
         quantity: quantityNum,
         notes: notes || null,
@@ -89,28 +103,41 @@ export async function submitQuote(req, res) {
         files: uploadedFiles.length ? { create: uploadedFiles } : undefined,
       },
       include: { files: true, springType: true },
-    });
-
-    try {
-      if (quote.contactEmail) {
-        const msg = quoteConfirmationEmail(quote);
-        await sendEmail(quote.contactEmail, msg.subject, msg.html);
-      }
-      const admins = await prisma.admin.findMany({ select: { email: true } });
-      const adminMsg = newQuoteAdminEmail(quote);
-      await Promise.all(
-        admins.map((a) => sendEmail(a.email, adminMsg.subject, adminMsg.html)),
+      });
+    } catch (createErr) {
+      await removeFromSupabase(
+        "quote-files",
+        uploadedFiles.map((f) => f.url),
       );
-    } catch (emailErr) {
-      console.error(
-        "Quote submitted but notification email(s) failed:",
-        emailErr,
-      );
+      throw createErr;
     }
 
-    res.status(201).json(quote);
+    // The RFQ is saved; notifications happen after the response goes out.
+    notifyCustomer(
+      quote.contactEmail,
+      quoteConfirmationEmail(quote),
+      `quote confirmation ${quote.referenceNumber}`,
+    );
+    notifyAdmins(
+      newQuoteAdminEmail(quote),
+      `new RFQ ${quote.referenceNumber}`,
+    );
+
+    res.status(201).json({
+      ...publicQuote(quote),
+      files: await signQuoteFiles(quote.files),
+    });
   } catch (err) {
+    // A rejected file type is the customer's problem to fix, not a server fault —
+    // tell them which file and why instead of a blank 500.
+    if (err instanceof UploadError) {
+      return res.status(err.status).json({ error: err.message });
+    }
     console.error("POST /quotes failed:", err);
     res.status(500).json({ error: "Failed to submit quote request" });
+  } finally {
+    // Staged uploads are temp files on disk; they must go whether or not the
+    // request succeeded, or the disk fills up over time.
+    await cleanupStagedFiles(req);
   }
 }
