@@ -11,6 +11,38 @@ function publicAdmin(admin) {
   return safe;
 }
 
+class LastAdminError extends Error {
+  status = 400;
+  constructor() {
+    super(
+      "This would leave the system with no ADMIN accounts. Promote another " +
+        "user to ADMIN first.",
+    );
+  }
+}
+
+/**
+ * Refuses any change that would remove the final ADMIN.
+ *
+ * With zero admins, every route under /admin/staff becomes permanently
+ * unreachable — promoting someone requires an admin, so there is no way back in
+ * without editing the database by hand.
+ *
+ * Must run inside a transaction. The SELECT ... FOR UPDATE is the part that
+ * makes it correct: without it, two admins demoting themselves at the same
+ * instant would each count the other and both believe an admin remains. Locking
+ * the ADMIN rows forces those transactions to take turns.
+ */
+async function assertAnotherAdminRemains(tx, targetAdminId: string) {
+  await tx.$queryRaw`SELECT id FROM "admins" WHERE "role"::text = 'ADMIN' FOR UPDATE`;
+
+  const remaining = await tx.admin.count({
+    where: { role: "ADMIN", id: { not: targetAdminId } },
+  });
+
+  if (remaining === 0) throw new LastAdminError();
+}
+
 export async function listStaff(req, res) {
   try {
     const staff = await prisma.admin.findMany({
@@ -110,20 +142,32 @@ export async function updateStaff(req, res) {
       passwordHash = await hashPassword(password);
     }
 
-    const admin = await prisma.admin.update({
-      where: { id: existing.id },
-      data: {
-        name,
-        role,
-        passwordHash,
-        // Changing the password kills their current session too — same
-        // idea as customer resetPassword nulling refreshTokenHash.
-        sessionTokenHash: password !== undefined ? null : undefined,
-      },
+    const admin = await prisma.$transaction(async (tx) => {
+      // Demoting an ADMIN to STAFF removes an admin just as surely as deleting
+      // the account does — including when an admin demotes themselves, which
+      // nothing previously prevented.
+      if (role === "STAFF" && existing.role === "ADMIN") {
+        await assertAnotherAdminRemains(tx, existing.id);
+      }
+
+      return tx.admin.update({
+        where: { id: existing.id },
+        data: {
+          name,
+          role,
+          passwordHash,
+          // Changing the password kills their current session too — same
+          // idea as customer resetPassword nulling refreshTokenHash.
+          sessionTokenHash: password !== undefined ? null : undefined,
+        },
+      });
     });
 
     res.json(publicAdmin(admin));
   } catch (err) {
+    if (err instanceof LastAdminError) {
+      return res.status(err.status).json({ error: err.message });
+    }
     console.error("PUT /admin/staff/:id failed:", err);
     res.status(500).json({ error: "Failed to update staff account" });
   }
@@ -146,9 +190,18 @@ export async function deleteStaff(req, res) {
         .json({ error: "You can't delete your own account" });
     }
 
-    await prisma.admin.delete({ where: { id: existing.id } });
+    await prisma.$transaction(async (tx) => {
+      if (existing.role === "ADMIN") {
+        await assertAnotherAdminRemains(tx, existing.id);
+      }
+      await tx.admin.delete({ where: { id: existing.id } });
+    });
+
     res.json({ message: "Staff account removed" });
   } catch (err) {
+    if (err instanceof LastAdminError) {
+      return res.status(err.status).json({ error: err.message });
+    }
     console.error("DELETE /admin/staff/:id failed:", err);
     res.status(500).json({ error: "Failed to delete staff account" });
   }

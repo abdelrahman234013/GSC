@@ -1,12 +1,5 @@
 import { prisma } from "../db";
-
-function slugify(text) {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
+import { slugify } from "../lib/validation";
 
 export async function createSpringType(req, res) {
   try {
@@ -16,6 +9,13 @@ export async function createSpringType(req, res) {
     }
 
     const finalSlug = slug ? slugify(slug) : slugify(nameEn);
+    if (!finalSlug) {
+      // An Arabic-only nameEn sanitises to "", which would store a spring type
+      // that /spring-types filtering can never address.
+      return res.status(400).json({
+        error: "slug must contain at least one Latin letter or number",
+      });
+    }
     const existing = await prisma.springType.findUnique({ where: { slug: finalSlug } });
     if (existing) {
       return res.status(409).json({ error: "A spring type with this slug already exists" });

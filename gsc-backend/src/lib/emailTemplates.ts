@@ -5,6 +5,31 @@ const BRAND = {
   tagline: "Reliability Engineered Into Every Coil",
 };
 
+/**
+ * Escapes a value for interpolation into email HTML.
+ *
+ * Every value below that came from a user goes through this. Mail clients block
+ * scripts, so this is not about XSS — it is about HTML and link injection into a
+ * message your staff trust. The contact form is public and unauthenticated, so
+ * anyone could previously submit a name of
+ *   `Ahmed</p><a href="https://evil.example">Click to view order</a><p>`
+ * and have it render as a real link inside an email that appears to come from
+ * your own system. That is a clean phishing vector aimed at your own team.
+ */
+function esc(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** Escaped, but with newlines preserved as line breaks for multi-line input. */
+function escMultiline(value: unknown): string {
+  return esc(value).replace(/\r?\n/g, "<br>");
+}
+
 function wrapEmail(bodyHtml) {
   return `
 <!DOCTYPE html>
@@ -39,7 +64,7 @@ function wrapEmail(bodyHtml) {
 }
 
 function button(url, label) {
-  return `<a href="${url}" style="display:inline-block; background-color:${BRAND.gold}; color:${BRAND.navy}; text-decoration:none; font-weight:bold; padding:12px 24px; border-radius:4px; margin:16px 0;">${label}</a>`;
+  return `<a href="${esc(url)}" style="display:inline-block; background-color:${BRAND.gold}; color:${BRAND.navy}; text-decoration:none; font-weight:bold; padding:12px 24px; border-radius:4px; margin:16px 0;">${esc(label)}</a>`;
 }
 
 export function verificationEmail(link) {
@@ -51,10 +76,37 @@ export function verificationEmail(link) {
     ${button(link, "Verify Email")}
     <p style="color:#888888; font-size:12px; line-height:1.5;">
       This link expires in 24 hours. If the button doesn't work, copy and paste this URL into your browser:<br/>
-      <a href="${link}" style="color:${BRAND.navy};">${link}</a>
+      <a href="${esc(link)}" style="color:${BRAND.navy};">${esc(link)}</a>
     </p>
   `;
   return { subject: "Verify your GSC account", html: wrapEmail(bodyHtml) };
+}
+
+/**
+ * Sent when someone tries to register with an address that already has an
+ * account.
+ *
+ * Registration responds identically whether or not the address is taken, so the
+ * response itself can no longer be used to discover who has an account. This
+ * email is how the real owner finds out — and if it wasn't them, it tells them
+ * someone is poking at their address.
+ */
+export function accountAlreadyExistsEmail(loginLink, resetLink) {
+  const bodyHtml = `
+    <h2 style="color:${BRAND.navy}; margin-top:0;">You already have an account</h2>
+    <p style="color:#333333; font-size:14px; line-height:1.5;">
+      Someone just tried to create a GSC account with this email address, but one
+      already exists. No new account has been created and nothing has changed.
+    </p>
+    ${button(loginLink, "Sign In")}
+    <p style="color:#888888; font-size:12px; line-height:1.5;">
+      Forgotten your password? <a href="${esc(resetLink)}" style="color:${BRAND.navy};">Reset it here</a>.
+    </p>
+    <p style="color:#888888; font-size:12px; line-height:1.5;">
+      If this wasn't you, you can safely ignore this email — your account is unchanged.
+    </p>
+  `;
+  return { subject: "You already have a GSC account", html: wrapEmail(bodyHtml) };
 }
 
 export function passwordResetEmail(link) {
@@ -65,11 +117,11 @@ export function passwordResetEmail(link) {
     </p>
     ${button(link, "Reset Password")}
     <p style="color:#888888; font-size:12px; line-height:1.5;">
-      This link expires in 15 minutes. If you didn't request a password reset, you can ignore this email — your password won't be changed.
+      This link expires in 15 minutes and can only be used once. If you didn't request a password reset, you can ignore this email — your password won't be changed.
     </p>
     <p style="color:#888888; font-size:12px; line-height:1.5;">
       If the button doesn't work, copy and paste this URL into your browser:<br/>
-      <a href="${link}" style="color:${BRAND.navy};">${link}</a>
+      <a href="${esc(link)}" style="color:${BRAND.navy};">${esc(link)}</a>
     </p>
   `;
   return { subject: "Reset your GSC password", html: wrapEmail(bodyHtml) };
@@ -79,15 +131,15 @@ export function orderConfirmationEmail(order) {
   const itemsHtml = order.items
     .map(
       (i) =>
-        `<tr><td>${i.nameSnapshotEn}</td><td>${i.quantity}</td><td>${i.priceSnapshot}</td></tr>`,
+        `<tr><td>${esc(i.nameSnapshotEn)}</td><td>${esc(i.quantity)}</td><td>${esc(i.priceSnapshot)}</td></tr>`,
     )
     .join("");
   return {
     subject: `Order confirmed — ${order.orderNumber}`,
     html: wrapEmail(`
-      <p>Thanks for your order! Your order number is <strong>${order.orderNumber}</strong>.</p>
+      <p>Thanks for your order! Your order number is <strong>${esc(order.orderNumber)}</strong>.</p>
       <table>${itemsHtml}</table>
-      <p>Total: ${order.totalAmount}</p>
+      <p>Total: ${esc(order.totalAmount)}</p>
       <p>Payment: Cash on Delivery.</p>
     `),
   };
@@ -97,18 +149,18 @@ export function newOrderAdminEmail(order) {
   return {
     subject: `New order — ${order.orderNumber}`,
     html: wrapEmail(`
-      <p>New order placed: <strong>${order.orderNumber}</strong></p>
-      <p>Customer: ${order.contactName} — ${order.contactPhone}</p>
-      <p>Total: ${order.totalAmount}</p>
+      <p>New order placed: <strong>${esc(order.orderNumber)}</strong></p>
+      <p>Customer: ${esc(order.contactName)} — ${esc(order.contactPhone)}</p>
+      <p>Total: ${esc(order.totalAmount)}</p>
     `),
   };
 }
 
 export function orderStatusUpdateEmail(order) {
   return {
-    subject: `Your order ${order.orderNumber} is now ${order.status.toLowerCase()}`,
+    subject: `Your order ${order.orderNumber} is now ${String(order.status).toLowerCase()}`,
     html: wrapEmail(`
-      <p>Your order <strong>${order.orderNumber}</strong> status has been updated to <strong>${order.status}</strong>.</p>
+      <p>Your order <strong>${esc(order.orderNumber)}</strong> status has been updated to <strong>${esc(order.status)}</strong>.</p>
     `),
   };
 }
@@ -117,9 +169,9 @@ export function newQuoteAdminEmail(quote) {
   return {
     subject: `New RFQ — ${quote.referenceNumber}`,
     html: wrapEmail(`
-      <p>New custom quote request: <strong>${quote.referenceNumber}</strong></p>
-      <p>Contact: ${quote.contactName} — ${quote.contactPhone}</p>
-      <p>Quantity: ${quote.quantity}</p>
+      <p>New custom quote request: <strong>${esc(quote.referenceNumber)}</strong></p>
+      <p>Contact: ${esc(quote.contactName)} — ${esc(quote.contactPhone)}</p>
+      <p>Quantity: ${esc(quote.quantity)}</p>
     `),
   };
 }
@@ -128,7 +180,7 @@ export function quoteConfirmationEmail(quote) {
   return {
     subject: `RFQ received — ${quote.referenceNumber}`,
     html: wrapEmail(`
-      <p>We've received your custom quote request. Reference number: <strong>${quote.referenceNumber}</strong>.</p>
+      <p>We've received your custom quote request. Reference number: <strong>${esc(quote.referenceNumber)}</strong>.</p>
       <p>Our team will review the details and get back to you with pricing.</p>
     `),
   };
@@ -139,10 +191,10 @@ export function contactMessageAdminEmail({ name, email, phone, message }) {
     subject: `New contact form message from ${name}`,
     html: wrapEmail(`
       <p>New message from the website contact form:</p>
-      <p><strong>Name:</strong> ${name}</p>
-      <p><strong>Email:</strong> ${email}</p>
-      ${phone ? `<p><strong>Phone:</strong> ${phone}</p>` : ""}
-      <p><strong>Message:</strong><br>${message}</p>
+      <p><strong>Name:</strong> ${esc(name)}</p>
+      <p><strong>Email:</strong> ${esc(email)}</p>
+      ${phone ? `<p><strong>Phone:</strong> ${esc(phone)}</p>` : ""}
+      <p><strong>Message:</strong><br>${escMultiline(message)}</p>
     `),
   };
 }

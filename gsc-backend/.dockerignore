@@ -1,4 +1,27 @@
+# Never copy host node_modules into the image: they may contain native modules
+# (bcrypt) compiled for the host's OS/libc, which then fail at runtime inside the
+# Alpine container. The image builds its own.
 node_modules
-npm-debug.log
+
+# A stale host build must not overwrite the one produced inside the image.
+dist
+
+# Secrets. These are injected at runtime via env_file / platform config, and must
+# never be baked into an image layer — anyone who can pull the image can read them.
 .env
+.env.*
+
 .git
+.gitignore
+
+# Not needed at runtime; excluding them keeps the build context small and avoids
+# invalidating layer caches on every unrelated edit.
+tests
+*.log
+npm-debug.log
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.docx
+README.md
