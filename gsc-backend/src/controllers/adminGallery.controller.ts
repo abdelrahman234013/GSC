@@ -1,4 +1,5 @@
 import { prisma } from "../db";
+import { invalidate, cacheKeys } from "../lib/cache";
 import {
   uploadToSupabase,
   removeFromSupabase,
@@ -47,6 +48,7 @@ export async function addGalleryImage(req, res) {
       },
     });
 
+    await invalidate(cacheKeys.galleryPrefix);
     res.status(201).json(image);
   } catch (err) {
     if (err instanceof UploadError) {
@@ -69,6 +71,7 @@ export async function deleteGalleryImage(req, res) {
     }
     await prisma.galleryImage.delete({ where: { id: existing.id } });
     await removeFromSupabase("gallery-images", [existing.url]);
+    await invalidate(cacheKeys.galleryPrefix);
     res.json({ message: "Gallery image removed" });
   } catch (err) {
     console.error("DELETE /admin/gallery/images/:id failed:", err);
@@ -99,6 +102,7 @@ export async function addGalleryVideo(req, res) {
       },
     });
 
+    await invalidate(cacheKeys.galleryPrefix);
     res.status(201).json(video);
   } catch (err) {
     if (err instanceof UploadError) {
@@ -123,6 +127,7 @@ export async function deleteGalleryVideo(req, res) {
     // Videos are the largest objects in storage, so leaking these was the most
     // expensive of the leaks.
     await removeFromSupabase("content-videos", [existing.url]);
+    await invalidate(cacheKeys.galleryPrefix);
     res.json({ message: "Gallery video removed" });
   } catch (err) {
     console.error("DELETE /admin/gallery/videos/:id failed:", err);

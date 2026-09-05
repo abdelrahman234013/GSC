@@ -1,4 +1,5 @@
 import { prisma } from "../db";
+import { invalidate, cacheKeys } from "../lib/cache";
 import {
   uploadToSupabase,
   removeFromSupabase,
@@ -86,6 +87,7 @@ export async function createProduct(req, res) {
       include: { springType: true },
     });
 
+    await invalidate(cacheKeys.productPrefix);
     res.status(201).json(product);
   } catch (err) {
     console.error("POST /admin/products failed:", err);
@@ -153,9 +155,11 @@ export async function updateProduct(req, res) {
         data: { stock: 0 },
         include: { springType: true },
       });
+      await invalidate(cacheKeys.productPrefix);
       return res.json(fixed);
     }
 
+    await invalidate(cacheKeys.productPrefix);
     res.json(product);
   } catch (err) {
     console.error("PUT /admin/products/:id failed:", err);
@@ -184,6 +188,7 @@ export async function deleteProduct(req, res) {
     // succeeded in the database.
     await removeFromSupabase("product-images", imageUrls);
 
+    await invalidate(cacheKeys.productPrefix);
     res.json({ message: "Product removed" });
   } catch (err) {
     if (err.code === "P2003") {
@@ -226,6 +231,7 @@ export async function deleteProductImage(req, res) {
       ),
     );
 
+    await invalidate(cacheKeys.productPrefix);
     res.json({ message: "Product image removed" });
   } catch (err) {
     console.error("DELETE /admin/products/:id/images/:imageId failed:", err);
@@ -277,6 +283,7 @@ export async function reorderProductImages(req, res) {
       where: { productId: req.params.id },
       orderBy: { position: "asc" },
     });
+    await invalidate(cacheKeys.productPrefix);
     res.json(updated);
   } catch (err) {
     console.error("PUT /admin/products/:id/images/reorder failed:", err);
@@ -320,6 +327,7 @@ export async function addProductImages(req, res) {
       orderBy: { position: "asc" },
     });
 
+    await invalidate(cacheKeys.productPrefix);
     res.status(201).json(allImages);
   } catch (err) {
     if (err instanceof UploadError) {

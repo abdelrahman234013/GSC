@@ -18,6 +18,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       # Bind mount source for hot reload (nodemon) — container's node_modules
       # stays in its own volume so your host OS's node_modules never overwrites it.
@@ -45,8 +47,25 @@ services:
       timeout: 5s
       retries: 5
 
-# Redis isn't added yet — it's not needed until we build catalog caching /
-# the BullMQ job queue, per the plan to only add things when we're about to use them.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # --maxmemory 256mb: a cache must never grow until it starves the machine.
+    # --maxmemory-policy allkeys-lru: when full, evict the least recently used
+    #   key rather than refusing writes. That is the correct policy for a pure
+    #   cache — losing a cold entry is free, since it can always be recomputed
+    #   from Postgres. (For a job queue you would NOT want this, because evicting
+    #   a queued job silently loses work.)
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      # Bound to localhost only. Redis has no authentication enabled here, so it
+      # must never be reachable from outside this machine.
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   postgres_data:

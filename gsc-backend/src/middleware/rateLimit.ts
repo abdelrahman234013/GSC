@@ -1,17 +1,13 @@
 import { rateLimit, ipKeyGenerator } from "express-rate-limit";
+import { rateLimitStore } from "../lib/rateLimitStore";
 
 // Rate limiting for the endpoints where unlimited requests are actually harmful:
 // password guessing, outbound email, and order creation.
 //
-// STORE: these use the default in-memory store, which is correct for a single
-// instance but has two limits worth knowing. Counters live in this process, so
-// they reset on every deploy or restart, and if you ever run more than one
-// instance each keeps its own counts — an attacker's effective allowance
-// multiplies by the number of instances. Swapping to Redis when you get there is
-// a one-line change per limiter:
-//
-//   import { RedisStore } from "rate-limit-redis";
-//   ... rateLimit({ store: new RedisStore({ ... }), ... })
+// STORE: shared Redis counters when Redis is available, in-process counters when
+// it isn't, switching automatically. See src/lib/rateLimitStore.ts for why it
+// works that way. Each limiter gets its OWN store — sharing one would merge
+// unrelated counters, so a failed sign-in would eat into the contact-form budget.
 //
 // TRUST PROXY: per-IP limiting only works if req.ip is the real client IP. See
 // the TRUST_PROXY note in src/index.ts — without it every request behind your
@@ -52,6 +48,7 @@ function accountKey(req: any): string {
  * belong on the specific endpoints below, not here.
  */
 export const globalLimiter = rateLimit({
+  store: rateLimitStore("global"),
   windowMs: 15 * MINUTE,
   limit: 1000,
   standardHeaders: true,
@@ -67,6 +64,7 @@ export const globalLimiter = rateLimit({
  * on a shared/CGNAT address.
  */
 export const loginIpLimiter = rateLimit({
+  store: rateLimitStore("login-ip"),
   windowMs: 15 * MINUTE,
   limit: 10,
   skipSuccessfulRequests: true,
@@ -79,6 +77,7 @@ export const loginIpLimiter = rateLimit({
 
 /** Password guessing, keyed by the targeted account. Stops distributed attacks. */
 export const loginAccountLimiter = rateLimit({
+  store: rateLimitStore("login-account"),
   windowMs: 15 * MINUTE,
   limit: 5,
   skipSuccessfulRequests: true,
@@ -100,6 +99,7 @@ export const loginAccountLimiter = rateLimit({
  * which makes us the abuser rather than the victim.
  */
 export const emailIpLimiter = rateLimit({
+  store: rateLimitStore("email-ip"),
   windowMs: HOUR,
   limit: 5,
   standardHeaders: true,
@@ -111,6 +111,7 @@ export const emailIpLimiter = rateLimit({
 
 /** Same, keyed by the recipient address, so one inbox can't be flooded. */
 export const emailAccountLimiter = rateLimit({
+  store: rateLimitStore("email-account"),
   windowMs: HOUR,
   limit: 3,
   standardHeaders: true,
@@ -127,6 +128,7 @@ export const emailAccountLimiter = rateLimit({
  * without a limit it is an open relay pointed at your own staff's inboxes.
  */
 export const contactLimiter = rateLimit({
+  store: rateLimitStore("contact"),
   windowMs: HOUR,
   limit: 5,
   standardHeaders: true,
@@ -145,6 +147,7 @@ export const contactLimiter = rateLimit({
  * shopper will ever reach it.
  */
 export const checkoutLimiter = rateLimit({
+  store: rateLimitStore("checkout"),
   windowMs: HOUR,
   limit: 20,
   standardHeaders: true,
@@ -159,6 +162,7 @@ export const checkoutLimiter = rateLimit({
 
 /** RFQ submission — authenticated, sends email, and accepts file uploads. */
 export const quoteLimiter = rateLimit({
+  store: rateLimitStore("quote"),
   windowMs: HOUR,
   limit: 10,
   standardHeaders: true,

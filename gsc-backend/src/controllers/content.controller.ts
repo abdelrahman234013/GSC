@@ -1,8 +1,11 @@
 import { prisma } from "../db";
+import { cached, cacheKeys } from "../lib/cache";
 
 export async function getPage(req, res) {
   try {
-    const page = await prisma.contentPage.findUnique({ where: { slug: req.params.slug } });
+    const page = await cached(cacheKeys.contentPage(req.params.slug), () =>
+      prisma.contentPage.findUnique({ where: { slug: req.params.slug } }),
+    );
     if (!page) {
       return res.status(404).json({ error: "Page not found" });
     }
@@ -15,7 +18,9 @@ export async function getPage(req, res) {
 
 export async function getTimeline(req, res) {
   try {
-    const entries = await prisma.timelineEntry.findMany({ orderBy: { position: "asc" } });
+    const entries = await cached(cacheKeys.timeline(), () =>
+      prisma.timelineEntry.findMany({ orderBy: { position: "asc" } }),
+    );
     res.json(entries);
   } catch (err) {
     console.error("GET /content/timeline failed:", err);

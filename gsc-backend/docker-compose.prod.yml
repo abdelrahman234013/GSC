@@ -22,6 +22,29 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
+    depends_on:
+      redis:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # See docker-compose.yml for why allkeys-lru is the right policy for a cache.
+    # No published port at all: the app reaches redis over the compose network by
+    # service name, so there is no reason to expose it to the host, let alone the
+    # internet. Redis here has no password — keeping it off the network entirely
+    # is what makes that safe.
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
     logging:
       driver: json-file
       options:

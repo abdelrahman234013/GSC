@@ -1,4 +1,5 @@
 import { prisma } from "../db";
+import { invalidate, cacheKeys } from "../lib/cache";
 import { slugify } from "../lib/validation";
 
 export async function createSpringType(req, res) {
@@ -25,6 +26,7 @@ export async function createSpringType(req, res) {
       data: { nameAr, nameEn, slug: finalSlug },
     });
 
+    await invalidate(cacheKeys.springTypesPrefix);
     res.status(201).json(springType);
   } catch (err) {
     console.error("POST /admin/spring-types failed:", err);
@@ -55,6 +57,7 @@ export async function updateSpringType(req, res) {
       data: { nameAr, nameEn, slug: finalSlug },
     });
 
+    await invalidate(cacheKeys.springTypesPrefix);
     res.json(springType);
   } catch (err) {
     console.error("PUT /admin/spring-types/:id failed:", err);
@@ -70,6 +73,7 @@ export async function deleteSpringType(req, res) {
     }
 
     await prisma.springType.delete({ where: { id: existing.id } });
+    await invalidate(cacheKeys.springTypesPrefix);
     res.json({ message: "Spring type removed" });
   } catch (err) {
     if (err.code === "P2003") {
