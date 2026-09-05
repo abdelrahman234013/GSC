@@ -11,7 +11,9 @@ export async function listProducts(req, res) {
     const where: any = {};
 
     if (springType) {
-      const type = await prisma.springType.findUnique({ where: { slug: springType } });
+      const type = await prisma.springType.findUnique({
+        where: { slug: springType },
+      });
       if (!type) {
         return res.status(400).json({ error: "Unknown springType filter" });
       }
@@ -34,13 +36,14 @@ export async function listProducts(req, res) {
     const pageNum = query.page;
     const limitNum = query.limit;
 
-    // Cached on the VALIDATED query, not the raw one: ?page=abc and ?page=1
-    // both resolve to page 1 and must share a cache entry rather than filling
-    // the cache with duplicates of the same response.
     const payload = await cached(
       cacheKeys.productList({
-        springType, minDiameter, maxDiameter, search,
-        page: pageNum, limit: limitNum,
+        springType,
+        minDiameter,
+        maxDiameter,
+        search,
+        page: pageNum,
+        limit: limitNum,
       }),
       async () => {
         const [products, total] = await Promise.all([
@@ -78,16 +81,14 @@ export async function listProducts(req, res) {
 
 export async function getProductBySlug(req, res) {
   try {
-    const product = await cached(
-      cacheKeys.productDetail(req.params.slug),
-      () =>
-        prisma.product.findUnique({
-          where: { slug: req.params.slug },
-          include: {
-            images: { orderBy: { position: "asc" } },
-            springType: true,
-          },
-        }),
+    const product = await cached(cacheKeys.productDetail(req.params.slug), () =>
+      prisma.product.findUnique({
+        where: { slug: req.params.slug },
+        include: {
+          images: { orderBy: { position: "asc" } },
+          springType: true,
+        },
+      }),
     );
     if (!product) {
       // A miss is cached as null too, which is deliberate: without it, requests
