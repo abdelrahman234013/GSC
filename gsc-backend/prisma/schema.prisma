@@ -134,6 +134,13 @@ model Product {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Foreign key with no automatic index — see the note on OrderItem.orderId.
+  // Used by "GET /products?springType=X".
+  @@index([springTypeId])
+  // Every public catalog page load sorts by this with no other filter, so a
+  // plain descending index (not part of a composite) is the right shape here —
+  // the busiest read path in the app, per the read-heavy analysis.
+  @@index([createdAt(sort: Desc)])
   @@map("products")
 }
 
@@ -147,6 +154,9 @@ model ProductImage {
   altEn    String?
   position Int     @default(0)
 
+  // Foreign key with no automatic index — see the note on OrderItem.orderId.
+  // Scanned on every product page load and every image reorder/delete.
+  @@index([productId])
   @@map("product_images")
 }
 
@@ -213,6 +223,14 @@ model Order {
   updatedAt DateTime @updatedAt
 
   @@unique([customerId, idempotencyKey])
+  // Serves "GET /customers/me/orders" (WHERE customerId = ? ORDER BY createdAt
+  // DESC) in one index pass — filter and sort together, not just the filter.
+  // Also covers the customerId foreign key on its own, so no separate
+  // single-column index on customerId is needed.
+  @@index([customerId, createdAt(sort: Desc)])
+  // Serves "GET /admin/orders?status=X", same reasoning: filter + sort in one
+  // index rather than an index scan followed by a separate sort step.
+  @@index([status, createdAt(sort: Desc)])
   @@map("orders")
 }
 
@@ -228,6 +246,10 @@ model OrderItem {
   priceSnapshot  Decimal @db.Decimal(10, 2)
   quantity       Int
 
+  // Postgres does not index foreign keys automatically (unlike MySQL/InnoDB) —
+  // without this, loading an order's line items via `include: { items: true }`
+  // is a full scan of order_items for every single order fetched.
+  @@index([orderId])
   @@map("order_items")
 }
 
@@ -272,6 +294,12 @@ model Quote {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Same reasoning as Order above: filter + sort together for
+  // "GET /customers/me/quotes" and "GET /admin/quotes?status=X".
+  @@index([customerId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  // Foreign key with no automatic index — see the note on OrderItem.orderId.
+  @@index([springTypeId])
   @@map("quotes")
 }
 
@@ -282,6 +310,7 @@ model QuoteFile {
   url          String
   originalName String?
 
+  @@index([quoteId])
   @@map("quote_files")
 }
 

@@ -6,11 +6,7 @@ import {
   compareToken,
   isLegacyPasswordHash,
 } from "../lib/password";
-import {
-  signToken,
-  verifyToken as verifyJwt,
-  TOKEN_PURPOSE,
-} from "../lib/jwt";
+import { signToken, verifyToken as verifyJwt, TOKEN_PURPOSE } from "../lib/jwt";
 import { sendEmail } from "../lib/mailer";
 import { OAuth2Client } from "google-auth-library";
 import { setRefreshCookie, clearRefreshCookie } from "../lib/jwt";
@@ -28,17 +24,10 @@ import { publicCustomer, resolveCustomerId } from "../lib/helperFunctions";
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-// Secrets are read at call time rather than captured here at import time — see
-// the note in middleware/customerAuth.ts.
-
 function createEmailVerificationToken(customerId) {
   return signToken(
     { customerId, type: "email_verification" },
     process.env.CUSTOMER_JWT_SECRET,
-    // 24 hours, matching what the email actually promises. It was signed for 15
-    // minutes while the template said 24 hours — and 15 minutes is too short
-    // regardless, since people routinely check their inbox later.
-    // Password reset stays at 15 minutes: that one is a live credential.
     "24h",
     TOKEN_PURPOSE.EMAIL_VERIFICATION,
   );
@@ -68,12 +57,10 @@ async function createToken(customerId) {
   return { accessToken, refreshToken };
 }
 
-// The single source of the registration response text, used by BOTH the
-// new-account and already-registered paths so the two cannot drift apart.
 function registrationMessage(emailSent: boolean): string {
   return emailSent
     ? "Account created. Check your email to verify before logging in."
-    : 'Account created, but we couldn\'t send the verification email right now. Use "resend verification" once you\'re ready to verify.';
+    : "Account created, but we couldn't send the verification email right now. Use \"resend verification\" once you're ready to verify.";
 }
 
 export async function register(req, res) {
@@ -98,17 +85,6 @@ export async function register(req, res) {
 
     const normalizedEmail = normalizeEmail(email);
 
-    // Anti-enumeration: this endpoint responds identically whether or not the
-    // address is already registered.
-    //
-    // It used to return 409 "An account with this email already exists", which
-    // let anyone check whether a given person had an account here — no password
-    // needed, just a list of addresses to try. (Login is fine as it stands: its
-    // "verify your email" response only appears AFTER the correct password has
-    // been supplied, so it tells an attacker nothing they don't already know.)
-    //
-    // The real owner still finds out, via email rather than via the API — and if
-    // it wasn't them who tried, that email is a useful warning.
     const existing = await prisma.customer.findUnique({
       where: { email: normalizedEmail },
     });
@@ -122,14 +98,12 @@ export async function register(req, res) {
         await sendEmail(existing.email, msg.subject, msg.html);
       } catch (emailErr) {
         noticeSent = false;
-        console.error("Duplicate-registration notice failed to send:", emailErr);
+        console.error(
+          "Duplicate-registration notice failed to send:",
+          emailErr,
+        );
       }
 
-      // Mirrors the success path exactly, INCLUDING how it behaves when the mail
-      // provider is down. If this branch always reported success while the real
-      // branch reported a send failure, an outage would turn into an account
-      // oracle: "couldn't send" would mean new, "check your email" would mean
-      // taken.
       return res.status(201).json({ message: registrationMessage(noticeSent) });
     }
 
@@ -138,15 +112,6 @@ export async function register(req, res) {
       data: { email: normalizedEmail, passwordHash, name, phone },
     });
 
-    // The account row is already committed at this point. If the send below
-    // throws and we let that fall through to the outer catch, the response
-    // becomes 500 "Failed to create account" for an account that in fact
-    // exists — unverified, with no way for the user to recover: register
-    // again 409s (email taken), login 403s (unverified), and resend hits this
-    // same failure. So a mail-provider hiccup must never fail the request;
-    // the account was created successfully regardless of whether the email
-    // made it out. The user can always ask for another link via
-    // /auth/resend-verification once the mail provider is healthy again.
     let emailSent = true;
     try {
       const verifyToken = createEmailVerificationToken(customer.id);
@@ -161,9 +126,6 @@ export async function register(req, res) {
       );
     }
 
-    // Deliberately does NOT include the customer object. Returning it here would
-    // be a giveaway on its own — the duplicate-address branch has no new customer
-    // to return, and must not return the existing one.
     res.status(201).json({ message: registrationMessage(emailSent) });
   } catch (err) {
     console.error("POST /auth/register failed:", err);
@@ -232,9 +194,6 @@ export async function login(req, res) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
-    // Successful login is the only moment we hold the plaintext, so it's the only
-    // chance to re-hash an old-format hash under the current scheme. Best-effort:
-    // a failure here must never block a legitimate sign-in.
     if (isLegacyPasswordHash(customer.passwordHash)) {
       try {
         await prisma.customer.update({
@@ -341,11 +300,6 @@ export async function forgotPassword(req, res) {
     });
 
     if (customer) {
-      // This response must stay identical whether or not the account exists —
-      // that's the whole point of the generic message below, it stops an
-      // attacker using the response to enumerate registered emails. A mail
-      // failure must not be allowed to leak that distinction by turning this
-      // into a 500 only when the account happens to exist.
       try {
         const resetToken = signToken(
           { customerId: customer.id, type: "password_reset" },
@@ -354,9 +308,6 @@ export async function forgotPassword(req, res) {
           TOKEN_PURPOSE.PASSWORD_RESET,
         );
 
-        // Record which link is currently valid. Issuing a new one invalidates
-        // any previous link immediately, rather than leaving several usable at
-        // once for the next fifteen minutes.
         await prisma.customer.update({
           where: { id: customer.id },
           data: { passwordResetTokenHash: hashToken(resetToken) },
@@ -419,10 +370,6 @@ export async function resetPassword(req, res) {
       select: { id: true, passwordResetTokenHash: true },
     });
 
-    // A cryptographically valid JWT is not enough on its own — it stays valid for
-    // its full lifetime, so the same link would otherwise keep working after the
-    // password had already been changed. This binds the token to a single stored
-    // hash that is cleared on use, making the link one-shot.
     if (
       !customer?.passwordResetTokenHash ||
       !compareToken(token, customer.passwordResetTokenHash)
@@ -434,18 +381,12 @@ export async function resetPassword(req, res) {
 
     const passwordHash = await hashPassword(password);
     const updated = await prisma.customer.updateMany({
-      // The hash is part of the WHERE, not just the earlier check: two requests
-      // replaying the same link simultaneously would both pass the comparison
-      // above, and only this makes the second one a no-op.
       where: {
         id: customer.id,
         passwordResetTokenHash: customer.passwordResetTokenHash,
       },
       data: {
         passwordHash,
-        // Consume the link, and sign out existing sessions — a password reset is
-        // how someone recovers a compromised account, so any session an attacker
-        // still holds has to die with it.
         passwordResetTokenHash: null,
         refreshTokenHash: null,
       },
@@ -548,10 +489,6 @@ export async function resendVerification(req, res) {
     });
 
     if (customer && !customer.emailVerifiedAt) {
-      // Same reasoning as forgotPassword above: keep this response generic
-      // regardless of whether sending succeeded, both to avoid enumeration
-      // and because this is the account's escape hatch out of the state
-      // register() can leave it in when the mail provider is down.
       try {
         const verifyToken = createEmailVerificationToken(customer.id);
         const verifyLink = `${process.env.FRONTEND_URL}/verify-email?token=${verifyToken}`;
