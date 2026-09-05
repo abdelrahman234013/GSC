@@ -1,4 +1,5 @@
 import { prisma } from "../db";
+import { invalidate, cacheKeys } from "../lib/cache";
 import { uploadToSupabase, UploadError } from "../lib/supabaseStorage";
 import { cleanupStagedFiles } from "../lib/upload";
 import { VIDEO_TYPES } from "../lib/fileTypes";
@@ -59,6 +60,7 @@ export async function updatePage(req, res) {
       },
     });
 
+    await invalidate(cacheKeys.contentPrefix);
     res.json(page);
   } catch (err) {
     console.error("PUT /admin/content/pages/:slug failed:", err);
@@ -86,6 +88,7 @@ export async function createTimelineEntry(req, res) {
         position: position ?? 0,
       },
     });
+    await invalidate(cacheKeys.contentPrefix);
     res.status(201).json(entry);
   } catch (err) {
     console.error("POST /admin/content/timeline failed:", err);
@@ -115,6 +118,7 @@ export async function updateTimelineEntry(req, res) {
         position: position ?? existing.position,
       },
     });
+    await invalidate(cacheKeys.contentPrefix);
     res.json(entry);
   } catch (err) {
     console.error("PUT /admin/content/timeline/:id failed:", err);
@@ -131,6 +135,7 @@ export async function deleteTimelineEntry(req, res) {
       return res.status(404).json({ error: "Timeline entry not found" });
     }
     await prisma.timelineEntry.delete({ where: { id: existing.id } });
+    await invalidate(cacheKeys.contentPrefix);
     res.json({ message: "Timeline entry removed" });
   } catch (err) {
     console.error("DELETE /admin/content/timeline/:id failed:", err);
@@ -170,6 +175,7 @@ export async function uploadHeroVideo(req, res) {
       create: { slug: "home", bodyAr, bodyEn },
     });
 
+    await invalidate(cacheKeys.contentPrefix);
     res.status(201).json(page);
   } catch (err) {
     if (err instanceof UploadError) {

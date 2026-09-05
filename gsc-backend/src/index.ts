@@ -8,6 +8,7 @@ import { getTrustedOrigins } from "./lib/origins";
 import { requireTrustedOrigin } from "./middleware/csrf";
 import { globalLimiter } from "./middleware/rateLimit";
 import { prisma } from "./db";
+import { getRedis, closeRedis, isRedisHealthy } from "./lib/redis";
 import customerAccountRoutes from "./routes/customerAccount.routes";
 import adminAuthRoutes from "./routes/adminAuth.routes";
 import adminStaffRoutes from "./routes/adminStaff.routes";
@@ -75,14 +76,21 @@ app.get("/healthz", (req, res) => {
 });
 
 app.get("/readyz", async (req, res) => {
+  // Redis is REPORTED but does not affect the verdict. Readiness answers one
+  // question — "should traffic be sent here?" — and the answer with a cold
+  // cache is still yes, just slower. Failing readiness on a Redis outage would
+  // pull every instance out of rotation over a component the app is designed to
+  // run without, converting a cache outage into a full outage. The database is
+  // different: without it there is no answer to give at all.
+  const cache = isRedisHealthy() ? "connected" : "unavailable";
   try {
     await prisma.$queryRaw`SELECT 1`;
-    res.json({ status: "ready" });
+    res.json({ status: "ready", database: "connected", cache });
   } catch (err) {
     console.error("Readiness check failed — database unreachable:", err);
     res
       .status(503)
-      .json({ status: "not ready", error: "database unreachable" });
+      .json({ status: "not ready", error: "database unreachable", cache });
   }
 });
 
@@ -142,6 +150,11 @@ app.use((err: any, req, res, _next) => {
   res.status(500).json({ error: "Something went wrong" });
 });
 
+// Connect at boot rather than lazily on the first cached request, so a
+// misconfigured REDIS_URL shows up in the startup logs instead of silently
+// leaving the cache off. Returns null when unconfigured, which is supported.
+getRedis();
+
 const server = app.listen(PORT, () => {
   console.log(`GSC backend listening on port ${PORT}`);
 });
@@ -168,6 +181,10 @@ async function shutdown(signal: string) {
     } catch (dbErr) {
       console.error("Error disconnecting Prisma:", dbErr);
     }
+    // After Prisma, so anything still finishing a request can still read cache.
+    // Without this the open socket keeps the event loop alive and the 10s
+    // force-exit above becomes the normal way this process dies.
+    await closeRedis();
     console.log("Shutdown complete.");
     process.exit(err ? 1 : 0);
   });

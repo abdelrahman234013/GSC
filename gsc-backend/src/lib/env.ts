@@ -97,6 +97,16 @@ export function validateEnv() {
     }
   }
 
+  // REDIS_URL is optional by design — the app runs without a cache. But a
+  // MALFORMED one is not the same as an absent one: ioredis would quietly treat
+  // a bare hostname as a unix socket path and never connect, leaving the cache
+  // silently off in production with no error anywhere. Validate the shape only
+  // when a value was actually supplied.
+  const redisUrl = process.env.REDIS_URL;
+  if (redisUrl && !/^rediss?:\/\//.test(redisUrl)) {
+    issues.push("REDIS_URL must start with redis:// or rediss:// (leave it unset to run without a cache)");
+  }
+
   // Reusing one secret for two purposes collapses the separation that keeps a
   // password-reset token from being accepted as a session — see lib/jwt.ts.
   const secrets = [
